@@ -13,4 +13,4 @@ I originally made this because I had modded a game by modifying DLL files and wa
 Nowhere near any of the previously mentioned goals. I think (mostly) final saving is done but a lot of work has to be done on loading and testing.
 Currently it supports saving types, fields, and methods but I believe properties and events are separate, so I will have to support those.
 End goal is a command-line utility or library, but currently it is a early testing phase so testing methods are just called from `main()`.
-There are also many minor incontinences in where methods are and what parameters and overloads they have which will also have to be fixed. 
+There are also many minor inconsistencies in where methods are and what parameters and overloads they have which will also have to be fixed. 
