@@ -1,0 +1,1 @@
+I think I am doing the copyright stuff correctly, but I really don't know. If there is a problem, tell me and I will try to fix it.
