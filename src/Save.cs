@@ -81,16 +81,16 @@ namespace AssemblyTools
                     List<string> removedFieldsToSave = new List<string>(removedFields.Count);
                     foreach (FieldDef fieldDef in removedFields)
                     {
-                        removedFieldsToSave.Add(fieldDef.Name);
+                        removedFieldsToSave.Add(fieldDef.FullName);
                     }
-                    toAdd.removedFields = removedFieldsToSave.ToArray();
+                    toAdd.RemovedFields = removedFieldsToSave.ToArray();
 
                     List<string> removedMethodsToSave = new List<string>(addedMethods.Count);
                     foreach (MethodDef methodDef in removedMethods)
                     {
-                        removedMethodsToSave.Add(methodDef.Name);
+                        removedMethodsToSave.Add(methodDef.FullName);
                     }
-                    toAdd.removedMethods = removedMethodsToSave.ToArray();
+                    toAdd.RemovedMethods = removedMethodsToSave.ToArray();
 
                     List<FieldSave> modifiedFieldsToSave = new List<FieldSave>(modifiedFields.Count);//I am *pretty* sure this works fine
                     foreach (FieldDef fieldDef in modifiedFields)
@@ -128,8 +128,8 @@ namespace AssemblyTools
 
                 typeSave.ModifiedMethods = new MethodSave[0];
                 typeSave.ModifiedFields = new FieldSave[0];
-                typeSave.removedMethods = new string[0];
-                typeSave.removedFields = new string[0];
+                typeSave.RemovedMethods = new string[0];
+                typeSave.RemovedFields = new string[0];
 
                 List<MethodSave> methods = new List<MethodSave>(type.Methods.Count);
                 foreach (MethodDef methodDef in type.Methods)
@@ -152,19 +152,7 @@ namespace AssemblyTools
 
         public static MethodSave GetMethodSave(MethodDef methodDef)
         {
-            MethodSave toReturn = new MethodSave();
-
-            toReturn.Name = methodDef.Name;
-            toReturn.Attributes = methodDef.Attributes;
-
-            toReturn.ReturnType = TypeRefSave.Get(methodDef.MethodSig.RetType);
-            toReturn.Parameters = new TypeRefSave[methodDef.Parameters.Count];
-            toReturn.ParameterNames = new string[methodDef.Parameters.Count];
-            for (int i = 0; i < methodDef.Parameters.Count; i++)
-            {
-                toReturn.Parameters[i] = TypeRefSave.Get(methodDef.Parameters[i].Type);
-                toReturn.ParameterNames[i] = methodDef.Parameters[i].Name;
-            }
+            MethodSave toReturn = GetMethodSaveAttributeSection(methodDef);
 
             //Since its an added method, its one big block of data
             if (methodDef.Body == null || methodDef.Body.Instructions == null)
@@ -198,29 +186,125 @@ namespace AssemblyTools
             while (toAdd.Count != 0)//Add types
             {
                 TypeSave typeSave = toAdd.Dequeue();
-                ITypeDefOrRef baseClass = null;
-                bool success = true;
-                if (typeSave.BaseType.HasValue)
+
+                ITypeDefOrRef baseClass = GetType(typeSave.BaseType, module);
+
+                TypeDefUser newType = (baseClass == null) ? new TypeDefUser(typeSave.Namespace, typeSave.Name) : new TypeDefUser(typeSave.Namespace, typeSave.Name, baseClass);
+                newType.Attributes = typeSave.Attributes;
+                module.Types.Add(newType);
+
+            }
+
+            foreach (TypeSave modifiedType in save.ModifiedTypes)
+            {
+                TypeDef existingType = Utils.GetTypeFromModule(module, modifiedType.Name, modifiedType.Namespace);
+
+                ITypeDefOrRef baseClass = GetType(modifiedType.BaseType, module);
+
+                if (baseClass != null) existingType.BaseType = baseClass;
+
+                existingType.Attributes = modifiedType.Attributes;
+
+                ApplySave(existingType, modifiedType, module);
+            }
+
+            foreach (string removedType in save.RemovedTypes)//O(n^3) go brrrrrr
+            {
+                foreach (TypeDef type in module.Types)
                 {
-                    if ((baseClass = module.CorLibTypes.GetTypeRef(typeSave.BaseType.Value.Namespace, typeSave.BaseType.Value.Name)) == null)//Its NOT a core type like string
+                    if (removedType == type.FullName)
                     {
-                        if((baseClass = Utils.GetTypeFromModule(module, typeSave.BaseType.Value.Name, typeSave.BaseType.Value.Namespace)) == null)
-                        {
-                            Console.WriteLine("COULD NOT FIND VALID BASE TYPE:");
-                            Console.WriteLine(typeSave.BaseType.Value.Namespace + "." + typeSave.BaseType.Value.Name);
-                            //This has an issue. If the base type is loaded afterwords, it wont find it even though it should. There is a bit of work to make it work (the queue) but it hasn't been fully implemented.
-                        }
+                        module.Types.Remove(type);
+                        break;
                     }
                 }
+            }
+        }
 
-                if (success)
+        public static void ApplySave(TypeDef type, TypeSave save, ModuleDefMD module)
+        {
+            foreach(string removedMethod in save.RemovedMethods)
+            {
+                foreach (MethodDef methodDef in type.Methods)
                 {
-                    TypeDefUser newType = (baseClass == null) ? new TypeDefUser(typeSave.Namespace, typeSave.Name) : new TypeDefUser(typeSave.Namespace, typeSave.Name, baseClass);
-                    // Console.WriteLine(newType.BaseType);
-                    newType.Attributes = typeSave.Attributes;
-                    module.Types.Add(newType);
+                    if(removedMethod == methodDef.FullName)
+                    {
+                        type.Methods.Remove(methodDef);
+                        break;
+                    }
                 }
             }
+
+            foreach (string removedField in save.RemovedFields)
+            {
+                foreach (FieldDef fieldDef in type.Fields)
+                {
+                    if (removedField == fieldDef.FullName)
+                    {
+                        type.Fields.Remove(fieldDef);
+                        break;
+                    }
+                }
+            }
+
+            foreach (MethodSave addedMethod in save.AddedMethods)
+            {
+                type.Methods.Add(GetAddedMethod(addedMethod, module));
+            }
+        }
+        
+        public static MethodDefUser GetAddedMethod(MethodSave method, ModuleDefMD module)//Just the signature, does not populate the body.
+        {
+            MethodSig sig = null;
+            if ((method.Attributes & MethodAttributes.Static) == 0)//Not static
+            {
+                TypeSig returnType = new ClassSig(GetType(method.ReturnType, module));//Need to do proper choosing at some point
+                TypeSig[] parameters = new TypeSig[method.Parameters.Length];
+                for(int i = 0;i < method.Parameters.Length;i ++)
+                {
+                    parameters[i] = new ClassSig(GetType(method.Parameters[i].Type, module));
+                }
+                sig = MethodSig.CreateInstance(returnType, parameters);
+            }
+            else//Static
+            {
+                TypeSig returnType = new ClassSig(GetType(method.ReturnType, module));//Need to do proper choosing at some point
+                TypeSig[] parameters = new TypeSig[method.Parameters.Length];
+                for (int i = 0; i < method.Parameters.Length; i++)
+                {
+                    parameters[i] = new ClassSig(GetType(method.Parameters[i].Type, module));
+                }
+                sig = MethodSig.CreateStatic(returnType, parameters);
+            }
+            MethodDefUser methodDef = new MethodDefUser(method.Name, sig, method.Attributes);
+
+            methodDef.Attributes = method.Attributes;
+
+            for (int i = 0;i < methodDef.Parameters.Count-1;i ++)
+            {
+                methodDef.ParamDefs.Add(new ParamDefUser(method.Parameters[i].Name, method.Parameters[i].Sequence, method.Parameters[i].Attributes));
+            }
+
+            return methodDef;
+        }
+
+        public static ITypeDefOrRef GetType(TypeRefSave? target, ModuleDefMD module)
+        {
+            ITypeDefOrRef type = null;
+            if (target.HasValue)
+            {
+                if ((type = module.CorLibTypes.GetTypeRef(target.Value.Namespace, target.Value.Name)) == null)//Its NOT a core type like string
+                {
+                    if ((type = Utils.GetTypeFromModule(module, target.Value.Name, target.Value.Namespace)) == null)
+                    {
+                        Console.WriteLine("COULD NOT FIND VALID BASE TYPE:");
+                        Console.WriteLine(target.Value.Namespace + "." + target.Value.Name);
+                        //This has an issue. If the base type is loaded afterwords, it wont find it even though it should. There is a bit of work to make it work (the queue) but it hasn't been fully implemented.
+                    }
+                }
+            }
+
+            return type;
         }
 
         public static InstructionSave[] GetInstructionsSave(Instruction[] rawInstructions, Instruction[] secondaryInstructions = null)
@@ -256,22 +340,49 @@ namespace AssemblyTools
             return instructions;
         }
 
-        public static MethodSave GetModifiedMethodSave(MethodDef original, MethodDef modded)
+        //This is just the attributes (name, signature, etc)
+        public static MethodSave GetMethodSaveAttributeSection(MethodDef method)
         {
             MethodSave toReturn = new MethodSave();
 
-            toReturn.Name = modded.Name;
-            toReturn.Attributes = modded.Attributes;
+            toReturn.Name = method.Name;
+            toReturn.Attributes = method.Attributes;
 
-            toReturn.ReturnType = TypeRefSave.Get(modded.MethodSig.RetType);
-            toReturn.Parameters = new TypeRefSave[modded.Parameters.Count];
-            toReturn.ParameterNames = new string[modded.Parameters.Count];
+            toReturn.ReturnType = TypeRefSave.Get(method.MethodSig.RetType);
 
-            for (int i = 0; i < modded.Parameters.Count; i++)
+            int actualParameterCount = 0;
+
+            foreach(Parameter parameter in method.Parameters)
             {
-                toReturn.Parameters[i] = TypeRefSave.Get(modded.Parameters[i].Type);
-                toReturn.ParameterNames[i] = modded.Parameters[i].Name;
+                if (parameter.IsNormalMethodParameter)
+                {
+                    actualParameterCount++;
+                }
             }
+
+            toReturn.Parameters = new ParameterSave[actualParameterCount];
+
+
+            int currentIndex = 0;
+            foreach (Parameter parameter in method.Parameters)
+            {
+                if (parameter.IsNormalMethodParameter)
+                {
+                    toReturn.Parameters[currentIndex] = new ParameterSave();
+                    toReturn.Parameters[currentIndex].Type = TypeRefSave.Get(parameter.Type);
+                    toReturn.Parameters[currentIndex].Name = parameter.Name;
+                    toReturn.Parameters[currentIndex].Attributes = parameter.ParamDef.Attributes;
+                    toReturn.Parameters[currentIndex].Sequence = parameter.ParamDef.Sequence;
+                    currentIndex++;
+                }
+            }
+
+            return toReturn;
+        }
+
+        public static MethodSave GetModifiedMethodSave(MethodDef original, MethodDef modded)
+        {
+            MethodSave toReturn = GetMethodSaveAttributeSection(modded);
 
             //Since its an added method, its one big block of data
             if (original.Body == null || original.Body.Instructions == null)
@@ -402,7 +513,7 @@ namespace AssemblyTools
         public string[] RemovedTypes;
     }
 
-    public struct TypeSave//Needs to be nullable and contain itself
+    public struct TypeSave
     {
         public string Name;
         public string Namespace;
@@ -410,10 +521,10 @@ namespace AssemblyTools
         public TypeAttributes Attributes;
         public MethodSave[] ModifiedMethods;
         public MethodSave[] AddedMethods;
-        public string[] removedMethods;
+        public string[] RemovedMethods;
         public FieldSave[] ModifiedFields;
         public FieldSave[] AddedFields;
-        public string[] removedFields;
+        public string[] RemovedFields;
     }
 
     public struct MethodSave
@@ -421,10 +532,17 @@ namespace AssemblyTools
         public string Name;
         public MethodAttributes Attributes;
         public TypeRefSave ReturnType;
-        public TypeRefSave[] Parameters;
-        public string[] ParameterNames;
+        public ParameterSave[] Parameters;
         public MethodDataBlockSave[] Data;
         public string OriginalMethodHash;
+    }
+
+    public struct ParameterSave
+    {
+        public TypeRefSave Type;
+        public string Name;
+        public ushort Sequence;//Not exactly sure what this does.
+        public ParamAttributes Attributes;
     }
 
     public struct MethodDataBlockSave
@@ -452,10 +570,5 @@ namespace AssemblyTools
     public enum MethodBlockType
     {
         INSERT, KEEP, DELETE
-    }
-
-    public enum TypeType//Uh does anybody have a better name for the type of a type?
-    {
-        CLASS, ENUM, INTERFACE
     }
 }
