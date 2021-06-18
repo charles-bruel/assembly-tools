@@ -63,12 +63,12 @@ namespace AssemblyTools
 
     public interface OperandSave
     {
-        public object GetValue();
+        public object GetValue(ModuleDefMD module);
     }
 
     public struct OperandNoOP : OperandSave
     {
-        public object GetValue()
+        public object GetValue(ModuleDefMD module)
         {
             throw null;
         }
@@ -83,7 +83,7 @@ namespace AssemblyTools
 
         public string Value;
 
-        public object GetValue()
+        public object GetValue(ModuleDefMD module)
         {
             return Value;
         }
@@ -98,7 +98,7 @@ namespace AssemblyTools
 
         public sbyte Value;
 
-        public object GetValue()
+        public object GetValue(ModuleDefMD module)
         {
             return Value;
         }
@@ -113,7 +113,7 @@ namespace AssemblyTools
 
         public float Value;
 
-        public object GetValue()
+        public object GetValue(ModuleDefMD module)
         {
             return Value;
         }
@@ -128,7 +128,7 @@ namespace AssemblyTools
 
         public double Value;
 
-        public object GetValue()
+        public object GetValue(ModuleDefMD module)
         {
             return Value;
         }
@@ -143,7 +143,7 @@ namespace AssemblyTools
 
         public int Value;
 
-        public object GetValue()
+        public object GetValue(ModuleDefMD module)
         {
             return Value;
         }
@@ -158,7 +158,7 @@ namespace AssemblyTools
 
         public long Value;
 
-        public object GetValue()
+        public object GetValue(ModuleDefMD module)
         {
             return Value;
         }
@@ -179,12 +179,12 @@ namespace AssemblyTools
             this.Value = null;
         }
 
-        public object GetValue() => GetValueCast();
+        public object GetValue(ModuleDefMD module) => GetValueCast(module);
 
-        public Local GetValueCast()
+        public Local GetValueCast(ModuleDefMD module)
         {
             if (Value != null) return Value;
-            return Value = new Local(Type.GetValueCast().ToTypeSig(), Name, Index);
+            return Value = new Local(Type.GetValueCast(module).ToTypeSig(), Name, Index);
         }
     }
 
@@ -197,7 +197,7 @@ namespace AssemblyTools
             this.Instructions = Instructions;
         }
 
-        public object GetValue()//Addiotional processing must be done
+        public object GetValue(ModuleDefMD module)//Additional processing must be done
         {
             return Instructions;
         }
@@ -226,7 +226,7 @@ namespace AssemblyTools
             this.Value = Value;
         }
 
-        public object GetValue()
+        public object GetValue(ModuleDefMD module)
         {
             return Value;//DO NOT USE THIS
         }
@@ -264,22 +264,24 @@ namespace AssemblyTools
         public string Name;
         public string Namespace;
         public string Module;
-        private TypeRefUser Value;
+        public string DefiningAssembly;
+        private ITypeDefOrRef Value;
 
-        public TypeRefSave(string Module, string Namespace, string Name)
+        public TypeRefSave(string Module, string Namespace, string Name, string DefiningAssembly)
         {
             this.Name = Name;
             this.Namespace = Namespace;
             this.Module = Module;
+            this.DefiningAssembly = DefiningAssembly;
             this.Value = null;
         }
 
-        public object GetValue() => GetValueCast();
+        public object GetValue(ModuleDefMD module) => GetValueCast(module);
 
-        public TypeRefUser GetValueCast()
+        public ITypeDefOrRef GetValueCast(ModuleDefMD module)
         {
             if (Value != null) return Value;
-            return Value = new TypeRefUser(Utils.GetModule(Module), Namespace, Name);//Fun
+            return Value = SaveUtils.GetType(this, module);
         }
 
         public static TypeRefSave Get(object operand)
@@ -305,7 +307,7 @@ namespace AssemblyTools
 
         public static TypeRefSave GetTypeDef(ITypeDefOrRef typeDef)
         {
-            return new TypeRefSave(typeDef.Module.Name, typeDef.Namespace, typeDef.Name);
+            return new TypeRefSave(typeDef.Module.Name, typeDef.Namespace, typeDef.Name, typeDef.DefinitionAssembly.Name);
         }
 
         public static TypeRefSave GetTypeSpec(TypeSpec typeSpec) => GetTypeDef(typeSpec.ScopeType);//I hope that is correct
@@ -314,7 +316,9 @@ namespace AssemblyTools
         {
             string temp = "INVALID";//uh no clue here, cant do a ternary conditional for some reason.
             if (typeSig.Module != null) temp = typeSig.Module.Name;
-            return new TypeRefSave(temp, typeSig.Namespace, typeSig.TypeName);
+            string temp2 = "INVALID";
+            if (typeSig.DefinitionAssembly != null) temp2 = typeSig.DefinitionAssembly.Name;
+            return new TypeRefSave(temp, typeSig.Namespace, typeSig.TypeName, temp2);
         }
     }
 
@@ -337,12 +341,12 @@ namespace AssemblyTools
             this.Value = null;
         }
 
-        public object GetValue() => GetValueCast();
+        public object GetValue(ModuleDefMD module) => GetValueCast(module);
 
-        public MemberRefUser GetValueCast()
+        public MemberRefUser GetValueCast(ModuleDefMD module)
         {
             if (Value != null) return Value;//Please send help
-            return Value = new MemberRefUser(Utils.GetModule(Module), Name, MethodSig.CreateStatic(ReturnSig.GetValueCast().ToTypeSig(), (from p in ParametersSig select p.GetValueCast().ToTypeSig()).ToArray()), ContainingType.GetValueCast());
+            return Value = new MemberRefUser(Utils.GetModule(Module), Name, MethodSig.CreateStatic(ReturnSig.GetValueCast(module).ToTypeSig(), (from p in ParametersSig select p.GetValueCast(module).ToTypeSig()).ToArray()), ContainingType.GetValueCast(module));
         }
 
         public static MethodRefSave Get(object operand)
@@ -401,12 +405,12 @@ namespace AssemblyTools
             this.Value = null;
         }
 
-        public object GetValue() => GetValueCast();
+        public object GetValue(ModuleDefMD module) => GetValueCast(module);
 
-        public MemberRefUser GetValueCast()
+        public MemberRefUser GetValueCast(ModuleDefMD module)
         {
             if (Value != null) return Value;
-            return Value = new MemberRefUser(Utils.GetModule(Module), Name, new FieldSig(Type.GetValueCast().ToTypeSig()), ContainingType.GetValueCast());
+            return Value = new MemberRefUser(Utils.GetModule(Module), Name, new FieldSig(Type.GetValueCast(module).ToTypeSig()), ContainingType.GetValueCast(module));
         }
 
         public static FieldRefSave Get(object operand)
@@ -455,12 +459,12 @@ namespace AssemblyTools
             this.Value = null;
         }
 
-        public object GetValue() => GetValueCast();
+        public object GetValue(ModuleDefMD module) => GetValueCast(module);
 
-        public object GetValueCast()
+        public object GetValueCast(ModuleDefMD module)
         {
             if (Value != null) return Value;
-            return Value = new Parameter(ParameterIndex, MethodSigIndex, Type.GetValueCast().ToTypeSig());
+            return Value = new Parameter(ParameterIndex, MethodSigIndex, Type.GetValueCast(module).ToTypeSig());
         }
     }
 }

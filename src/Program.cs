@@ -33,6 +33,11 @@ namespace AssemblyTools
             Utils.OutputAll(outputLocation2, outputModule, moddedModule);
             outputModule.Write(outputASMLocation1);
 
+            foreach(TypeDef type in moddedModule.Types)
+            {
+                //Console.WriteLine(type.FullName);
+            }
+
             /*ModuleContext modCtx = ModuleDef.CreateModuleContext();
             ModuleDefMD moddedModule = ModuleDefMD.Load(outputASMLocation1, modCtx);
             ModuleDefMD originalModule = ModuleDefMD.Load(originalAssembly, modCtx);

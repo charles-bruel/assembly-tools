@@ -3,6 +3,7 @@ using dnlib.DotNet;
 using dnlib.DotNet.Emit;
 using System;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 
 namespace AssemblyTools
 {
@@ -262,7 +263,7 @@ namespace AssemblyTools
                 TypeSig[] parameters = new TypeSig[method.Parameters.Length];
                 for(int i = 0;i < method.Parameters.Length;i ++)
                 {
-                    parameters[i] = new ClassSig(GetType(method.Parameters[i].Type, module));
+                    parameters[i] = GetSig(method.Parameters[i].Type, module);
                 }
                 sig = MethodSig.CreateInstance(returnType, parameters);
             }
@@ -272,7 +273,7 @@ namespace AssemblyTools
                 TypeSig[] parameters = new TypeSig[method.Parameters.Length];
                 for (int i = 0; i < method.Parameters.Length; i++)
                 {
-                    parameters[i] = new ClassSig(GetType(method.Parameters[i].Type, module));
+                    parameters[i] = GetSig(method.Parameters[i].Type, module);
                 }
                 sig = MethodSig.CreateStatic(returnType, parameters);
             }
@@ -288,18 +289,45 @@ namespace AssemblyTools
             return methodDef;
         }
 
+        public static TypeSig GetSig(TypeRefSave type, ModuleDefMD module)
+        {
+            Regex rx = new Regex(@"\S*\[[0.,]+\]");
+            string typeName = type.Name;
+            int typeNameLength = typeName.Length;
+            if(typeName[typeNameLength - 2] == '[' && typeName[typeNameLength - 1] == ']')//It ends in [], so its an array
+            {
+                TypeRefSave arrayType = type;//Copy
+                arrayType.Name = typeName.Substring(0, typeNameLength - 2);
+                return new ArraySig(GetSig(arrayType, module));
+            } 
+            else if (rx.Matches(typeName).Count != 0)//Multirank array, i.e. Int32[,]
+            {
+                int rank = typeName.Split(",").Length;
+                TypeRefSave arrayType = type;//Copy
+                arrayType.Name = typeName.Substring(0, typeName.IndexOf("["));
+                return new ArraySig(GetSig(arrayType, module), rank);
+            }
+            return new ClassSig(GetType(type, module));
+        }
+
         public static ITypeDefOrRef GetType(TypeRefSave? target, ModuleDefMD module)
         {
             ITypeDefOrRef type = null;
             if (target.HasValue)
             {
-                if ((type = module.CorLibTypes.GetTypeRef(target.Value.Namespace, target.Value.Name)) == null)//Its NOT a core type like string
+                if(target.Value.DefiningAssembly != "netstandard" && target.Value.DefiningAssembly != "mscorlib" && target.Value.DefiningAssembly != module.Assembly.Name)
                 {
-                    if ((type = Utils.GetTypeFromModule(module, target.Value.Name, target.Value.Namespace)) == null)
+                    type = new TypeRefUser(module, target.Value.Namespace, target.Value.Name, new AssemblyRefUser(target.Value.DefiningAssembly));
+                }
+                else
+                {
+                    TypeDef temp = Utils.GetTypeFromModule(module, target.Value.Name, target.Value.Namespace);
+                    if (temp == null)
                     {
-                        Console.WriteLine("COULD NOT FIND VALID BASE TYPE:");
-                        Console.WriteLine(target.Value.Namespace + "." + target.Value.Name);
-                        //This has an issue. If the base type is loaded afterwords, it wont find it even though it should. There is a bit of work to make it work (the queue) but it hasn't been fully implemented.
+                        type = module.CorLibTypes.GetTypeRef(target.Value.Namespace, target.Value.Name);
+                    } else
+                    {
+                        type = temp;
                     }
                 }
             }
