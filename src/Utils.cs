@@ -12,14 +12,6 @@ namespace AssemblyTools
 {
     public class Utils
     {
-        #region moduleManagement
-
-        public static ModuleDef GetModule(string Module)
-        {
-            throw new NotImplementedException();
-        }
-
-        #endregion
         #region masterMethods
 
         public static void OutputAll(string outputLocation, ModuleDefMD moddedModule, ModuleDefMD originalModule)

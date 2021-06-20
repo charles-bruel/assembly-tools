@@ -382,7 +382,7 @@ namespace AssemblyTools
         public MemberRefUser GetValueCast(ModuleDefMD module)
         {
             if (Value != null) return Value;//Please send help
-            return Value = new MemberRefUser(Utils.GetModule(Module), Name, MethodSig.CreateStatic(ReturnSig.GetValueCast(module).ToTypeSig(), (from p in ParametersSig select p.GetValueCast(module).ToTypeSig()).ToArray()), ContainingType.GetValueCast(module));
+            return Value = new MemberRefUser(module, Name, MethodSig.CreateStatic(ReturnSig.GetValueCast(module).ToTypeSig(), (from p in ParametersSig select p.GetValueCast(module).ToTypeSig()).ToArray()), ContainingType.GetValueCast(module));
         }
 
         public static MethodRefSave Get(object operand)
@@ -446,7 +446,7 @@ namespace AssemblyTools
         public MemberRefUser GetValueCast(ModuleDefMD module)
         {
             if (Value != null) return Value;
-            return Value = new MemberRefUser(Utils.GetModule(Module), Name, new FieldSig(Type.GetValueCast(module).ToTypeSig()), ContainingType.GetValueCast(module));
+            return Value = new MemberRefUser(module, Name, new FieldSig(Type.GetValueCast(module).ToTypeSig()), ContainingType.GetValueCast(module));
         }
 
         public static FieldRefSave Get(object operand)
