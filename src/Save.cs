@@ -307,6 +307,17 @@ namespace AssemblyTools
                 arrayType.Name = typeName.Substring(0, typeName.IndexOf("["));
                 return new ArraySig(GetSig(arrayType, module), rank);
             }
+            else if (type.GenericParameters.Length != 0)
+            {
+                TypeRefSave genericBaseType = type;//Copy
+                genericBaseType.GenericParameters = new TypeRefSave[0];
+                TypeSig[] genericParams = new TypeSig[type.GenericParameters.Length];
+                for(int i = 0;i < genericParams.Length;i++)
+                {
+                    genericParams[i] = GetSig(type.GenericParameters[i], module);
+                }
+                return new GenericInstSig((ClassOrValueTypeSig)GetSig(genericBaseType, module), genericParams);//I *think* this cast is ok
+            }
             return new ClassSig(GetType(type, module));
         }
 

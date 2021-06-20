@@ -1,6 +1,7 @@
 ﻿using dnlib.DotNet;
 using dnlib.DotNet.Emit;
 using System.Linq;
+using System.Collections.Generic;
 using System;
 
 namespace AssemblyTools
@@ -265,6 +266,7 @@ namespace AssemblyTools
         public string Namespace;
         public string Module;
         public string DefiningAssembly;
+        public TypeRefSave[] GenericParameters;
         private ITypeDefOrRef Value;
 
         public TypeRefSave(string Module, string Namespace, string Name, string DefiningAssembly)
@@ -273,6 +275,17 @@ namespace AssemblyTools
             this.Namespace = Namespace;
             this.Module = Module;
             this.DefiningAssembly = DefiningAssembly;
+            this.GenericParameters = new TypeRefSave[0];
+            this.Value = null;
+        }
+
+        public TypeRefSave(string Module, string Namespace, string Name, string DefiningAssembly, TypeRefSave[] GenericParameters)
+        {
+            this.Name = Name;
+            this.Namespace = Namespace;
+            this.Module = Module;
+            this.DefiningAssembly = DefiningAssembly;
+            this.GenericParameters = GenericParameters;
             this.Value = null;
         }
 
@@ -318,6 +331,29 @@ namespace AssemblyTools
             if (typeSig.Module != null) temp = typeSig.Module.Name;
             string temp2 = "INVALID";
             if (typeSig.DefinitionAssembly != null) temp2 = typeSig.DefinitionAssembly.Name;
+            if (typeSig is GenericInstSig)
+            {
+                GenericInstSig genericInstSig = typeSig as GenericInstSig;
+                TypeRefSave[] genericParameters = new TypeRefSave[genericInstSig.GenericArguments.Count];
+                for(int i = 0;i < genericInstSig.GenericArguments.Count;i++)
+                {
+                    genericParameters[i] = Get(genericInstSig.GenericArguments[i]);
+                }
+                return new TypeRefSave(temp, typeSig.Namespace, typeSig.TypeName, temp2, genericParameters);
+            } 
+            else if (typeSig is ArraySigBase)//Array of generics test
+            {
+                if((typeSig as ArraySigBase).Next is GenericInstSig)//.Next is the element type.
+                {
+                    GenericInstSig genericInstSig = (typeSig as ArraySigBase).Next as GenericInstSig;//as as as
+                    TypeRefSave[] genericParameters = new TypeRefSave[genericInstSig.GenericArguments.Count];//This entire section is a hacky thing to allow arrays of generics to work.
+                    for (int i = 0; i < genericInstSig.GenericArguments.Count; i++)
+                    {
+                        genericParameters[i] = Get(genericInstSig.GenericArguments[i]);
+                    }
+                    return new TypeRefSave(temp, typeSig.Namespace, typeSig.TypeName, temp2, genericParameters);
+                }
+            }
             return new TypeRefSave(temp, typeSig.Namespace, typeSig.TypeName, temp2);
         }
     }
