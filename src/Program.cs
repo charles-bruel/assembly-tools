@@ -36,7 +36,7 @@ namespace AssemblyTools
             Utils.OutputAll(outputLocation2, outputModule, moddedModule);
             outputModule.Write(outputASMLocation1);
 
-            Utils.PrintMethodDiffs(moddedModule, outputModule, "LiftTowerCablePathFetcher", "Test");
+            Utils.PrintMethodDiffs(moddedModule, outputModule, "LiftTowerCablePathFetcher", "GetCablePath");
 
             foreach(TypeDef type in moddedModule.Types)
             {

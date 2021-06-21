@@ -410,9 +410,12 @@ namespace AssemblyTools
             method.Body.KeepOldMaxStack = true;
 
             method.Body.Instructions.Clear();//Inefficient but it works
+            uint offsetCounter = 0;
             foreach (Instruction instruction in newInstructions)
             {
+                instruction.Offset = offsetCounter;
                 method.Body.Instructions.Add(instruction);
+                offsetCounter += (uint) instruction.GetSize();
             }
         }
 
