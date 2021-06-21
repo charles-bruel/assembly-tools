@@ -183,6 +183,15 @@ namespace AssemblyTools
 
         public static void ApplySave(ModuleDefMD module, Save save)
         {
+            ApplySaveStage1(module, save);//Add new types
+
+            ApplySaveStage2(module, save);//Add new methods and fields
+
+            ApplySaveStage3(module, save);//Modify methods
+        }
+
+        private static void ApplySaveStage1(ModuleDefMD module, Save save)
+        {
             Queue<TypeSave> toAdd = new Queue<TypeSave>(save.AddedTypes);
             while (toAdd.Count != 0)//Add types
             {
@@ -195,7 +204,10 @@ namespace AssemblyTools
                 module.Types.Add(newType);
 
             }
+        }
 
+        private static void ApplySaveStage2(ModuleDefMD module, Save save)
+        {
             foreach (TypeSave modifiedType in save.ModifiedTypes)
             {
                 TypeDef existingType = Utils.GetTypeFromModule(module, modifiedType.Name, modifiedType.Namespace);
@@ -206,7 +218,7 @@ namespace AssemblyTools
 
                 existingType.Attributes = modifiedType.Attributes;
 
-                ApplySave(existingType, modifiedType, module);
+                ApplySaveToTypeStage2(existingType, modifiedType, module);
             }
 
             foreach (string removedType in save.RemovedTypes)//O(n^3) go brrrrrr
@@ -222,7 +234,17 @@ namespace AssemblyTools
             }
         }
 
-        public static void ApplySave(TypeDef type, TypeSave save, ModuleDefMD module)
+        private static void ApplySaveStage3(ModuleDefMD module, Save save)
+        {
+            foreach (TypeSave modifiedType in save.ModifiedTypes)
+            {
+                TypeDef existingType = Utils.GetTypeFromModule(module, modifiedType.Name, modifiedType.Namespace);
+
+                ApplySaveToTypeStage3(existingType, modifiedType, module);
+            }
+        }
+        
+        private static void ApplySaveToTypeStage2(TypeDef type, TypeSave save, ModuleDefMD module)
         {
             foreach(string removedMethod in save.RemovedMethods)
             {
@@ -248,12 +270,152 @@ namespace AssemblyTools
                 }
             }
 
-            foreach (MethodSave addedMethod in save.AddedMethods)
+            for(int i = 0;i < save.AddedMethods.Length;i++)
             {
-                type.Methods.Add(GetAddedMethod(addedMethod, module));
+                MethodDef temp = GetAddedMethod(save.AddedMethods[i], module);
+                type.Methods.Add(temp);
+                save.AddedMethods[i].FullName = temp.FullName;//Update name for next section.
+                //The fact that this has to be modified indicates something is going wrong somewhere.
             }
         }
-        
+
+        private static void ApplySaveToTypeStage3(TypeDef type, TypeSave save, ModuleDefMD module)
+        {
+            foreach (MethodSave addedMethod in save.AddedMethods)
+            {
+                MethodDef addedMethodDef = null;
+                foreach(MethodDef methodDef in type.Methods)
+                {
+                    if (methodDef.FullName == addedMethod.FullName)
+                    {
+                        addedMethodDef = methodDef;
+                    }
+                }
+
+                if(addedMethodDef == null)
+                {
+                    Console.WriteLine("Failed to find: " + addedMethod.FullName);
+                } 
+                else
+                {
+                    ApplyInstructionsSaveToMehtod(addedMethodDef, addedMethod, module);
+                }
+            }
+        }
+
+        private static void ApplyInstructionsSaveToMehtod(MethodDef method, MethodSave save, ModuleDefMD module)
+        {
+            if(method.Body == null)
+            {
+                method.Body = new CilBody();
+            }
+
+            int oldMethodLineCounter = 0;
+            List<Instruction> newInstructions = new List<Instruction>();
+            List<Instruction> oldInstructions = Utils.ToList(method.Body.Instructions);
+
+            List<Tuple<int,InstructionSave>> indicesToRevisit = new List<Tuple<int, InstructionSave>>();
+
+            foreach (MethodDataBlockSave dataBlock in save.Data)
+            {
+                switch (dataBlock.Type)
+                {
+                    case MethodBlockType.KEEP:
+                        for(int i = 0;i < dataBlock.Lines;i ++)
+                        {
+                            newInstructions.Add(oldInstructions[oldMethodLineCounter]);
+                            oldMethodLineCounter++;
+                        }
+                        break;
+                    case MethodBlockType.DELETE:
+                        oldMethodLineCounter += dataBlock.Lines;
+                        break;
+                    case MethodBlockType.INSERT:
+                        foreach(InstructionSave instructionSave in dataBlock.Data)
+                        {
+                            OpCode opCode = OpCodes.Nop;
+                            if (instructionSave.OpCode >> 8 == 0)
+                            {
+                                opCode = OpCodes.OneByteOpCodes[(int)((byte)instructionSave.OpCode)];//Its a bit weird, but it was taken from the OpCode constructor decompiled with dnSpy, so I think its right.
+                            } 
+                            else
+                            {
+                                opCode = OpCodes.TwoByteOpCodes[(int)((byte)instructionSave.OpCode)];
+                            }
+                            if(instructionSave.Operand is OperandNoOP)
+                            {
+                                Instruction instruction = new Instruction(opCode);
+                                newInstructions.Add(instruction);
+                            } 
+                            else
+                            {
+                                object operand = null;
+                                if (instructionSave.Operand is OperandInstruction)//Jumping is fun
+                                {
+                                    OperandInstruction operandInstruction = (OperandInstruction) instructionSave.Operand;//Cannot use as keyword here because its a struct, which is a shame because it is much cleaner.
+                                    if(operandInstruction.Type == OperandInstructionType.EXTERNAL)//Its referencing an instruction in the original method, so it can be assigned now.
+                                    {
+                                        operand = oldInstructions[operandInstruction.Value];
+                                    } 
+                                    else//Its referencing a instruction in the new method
+                                    {
+                                        int currentIndex = newInstructions.Count;
+                                        if(operandInstruction.Value < currentIndex)//Its an earlier instruction its referencing, so we can populate it now.
+                                        {
+                                            operand = newInstructions[operandInstruction.Value];
+                                        }
+                                        else
+                                        {
+                                            indicesToRevisit.Add(new Tuple<int,InstructionSave>(currentIndex,instructionSave));//Its an later instruction its referencing, so we have to populate it later.
+                                        }
+                                    }
+                                }
+                                else if (instructionSave.Operand is OperandInstructionArray)
+                                {
+                                    throw new NotImplementedException();
+                                }
+                                else
+                                {
+                                    operand = instructionSave.Operand.GetValue(module);
+                                }
+                                Instruction instruction = new Instruction(opCode, operand);
+                                newInstructions.Add(instruction);
+                            }
+                        }
+                        break;
+                }
+            }
+
+            for(int i = 0;i < indicesToRevisit.Count;i++)
+            {
+                object operand = null;
+                if (indicesToRevisit[i].Item2.Operand is OperandInstruction)
+                {
+                    OperandInstruction operandInstruction = (OperandInstruction)indicesToRevisit[i].Item2.Operand;//Cannot use as keyword here because its a struct, which is a shame because it is much cleaner
+                    if (operandInstruction.Type == OperandInstructionType.EXTERNAL)//Should have already done this, but still will support it.
+                    {
+                        operand = oldInstructions[operandInstruction.Value];
+                    }
+                    else
+                    {
+                        operand = newInstructions[operandInstruction.Value];
+                    }
+                }
+
+                newInstructions[indicesToRevisit[i].Item1].Operand = operand;
+            }
+
+            method.Body.MaxStack = save.StackSize;
+
+            method.Body.KeepOldMaxStack = true;
+
+            method.Body.Instructions.Clear();//Inefficient but it works
+            foreach (Instruction instruction in newInstructions)
+            {
+                method.Body.Instructions.Add(instruction);
+            }
+        }
+
         public static MethodDefUser GetAddedMethod(MethodSave method, ModuleDefMD module)//Just the signature, does not populate the body.
         {
             MethodSig sig = null;
@@ -294,7 +456,7 @@ namespace AssemblyTools
             Regex rx = new Regex(@"\S*\[[0.,]+\]");
             string typeName = type.Name;
             int typeNameLength = typeName.Length;
-            if(typeName[typeNameLength - 2] == '[' && typeName[typeNameLength - 1] == ']')//It ends in [], so its an array
+            if(typeNameLength > 2 && typeName[typeNameLength - 2] == '[' && typeName[typeNameLength - 1] == ']')//It ends in [], so its an array
             {
                 TypeRefSave arrayType = type;//Copy
                 arrayType.Name = typeName.Substring(0, typeNameLength - 2);
@@ -336,7 +498,8 @@ namespace AssemblyTools
                     if (temp == null)
                     {
                         type = module.CorLibTypes.GetTypeRef(target.Value.Namespace, target.Value.Name);
-                    } else
+                    }
+                    else
                     {
                         type = temp;
                     }
@@ -385,9 +548,12 @@ namespace AssemblyTools
             MethodSave toReturn = new MethodSave();
 
             toReturn.Name = method.Name;
+            toReturn.FullName = method.FullName;
             toReturn.Attributes = method.Attributes;
 
             toReturn.ReturnType = TypeRefSave.Get(method.MethodSig.RetType);
+
+            toReturn.StackSize = method.Body.MaxStack;
 
             int actualParameterCount = 0;
 
@@ -569,11 +735,13 @@ namespace AssemblyTools
     public struct MethodSave
     {
         public string Name;
+        public string FullName;
         public MethodAttributes Attributes;
         public TypeRefSave ReturnType;
         public ParameterSave[] Parameters;
         public MethodDataBlockSave[] Data;
         public string OriginalMethodHash;
+        public ushort StackSize;
     }
 
     public struct ParameterSave

@@ -681,6 +681,34 @@ namespace AssemblyTools
             return dmp.diff_lineModeStrict(GetMethodString(orgMethod, false), GetMethodString(moddedMethod, false));
         }
 
+        public static void PrintMethodDiffs(ModuleDefMD original, ModuleDefMD modded, string typeName, string methodName)
+        {
+            foreach(var type in GetCorrespondingTypes(modded, original))
+            {
+                if(type.Item1.Name == typeName)
+                {
+                    foreach (MethodDef method in type.Item1.Methods)
+                    {
+                        if (method.Name == methodName)
+                        {
+                            foreach (MethodDef method2 in type.Item2.Methods)
+                            {
+                                if (method2.Name == methodName)
+                                {
+                                    PrintDifferences(GetMethodDiffs(method, method2));
+                                    break;
+                                }
+                            }
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
+
+            
+        }
+
         public static void PrintDifferences(List<Diff> diffs)
         {
             ConsoleColor oldForegroundColor = Console.ForegroundColor;

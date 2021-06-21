@@ -291,7 +291,7 @@ namespace AssemblyTools
 
         public object GetValue(ModuleDefMD module) => GetValueCast(module);
 
-        public ITypeDefOrRef GetValueCast(ModuleDefMD module)
+        public ITypeDefOrRef GetValueCast(ModuleDefMD module)//TODO: Fixme
         {
             if (Value != null) return Value;
             return Value = SaveUtils.GetType(this, module);
@@ -365,24 +365,71 @@ namespace AssemblyTools
         public TypeRefSave ReturnSig;
         public TypeRefSave[] ParametersSig;
         public TypeRefSave ContainingType;
+        public bool IsStatic;
         private MemberRefUser Value;
 
-        public MethodRefSave(string Module, string Name, TypeRefSave ContainingType, TypeRefSave ReturnSig, TypeRefSave[] ParametersSig)
+        public MethodRefSave(string Module, string Name, TypeRefSave ContainingType, TypeRefSave ReturnSig, TypeRefSave[] ParametersSig, bool IsStatic)
         {
             this.Name = Name;
             this.Module = Module;
             this.ReturnSig = ReturnSig;
             this.ParametersSig = ParametersSig;
             this.ContainingType = ContainingType;
+            this.IsStatic = IsStatic;
             this.Value = null;
         }
 
         public object GetValue(ModuleDefMD module) => GetValueCast(module);
 
-        public MemberRefUser GetValueCast(ModuleDefMD module)
+        public IMethod GetValueCast(ModuleDefMD module)
         {
-            if (Value != null) return Value;//Please send help
-            return Value = new MemberRefUser(module, Name, MethodSig.CreateStatic(ReturnSig.GetValueCast(module).ToTypeSig(), (from p in ParametersSig select p.GetValueCast(module).ToTypeSig()).ToArray()), ContainingType.GetValueCast(module));
+            if (Value != null) return Value;
+
+            foreach (TypeDef type in module.Types)//Attempt #1 - is it a method in this assembly?
+            {
+                if (type.Name == ContainingType.Name && type.Namespace == ContainingType.Namespace)
+                {
+                    foreach (MethodDef method in type.Methods)
+                    {
+                        if (method.Name == Name)
+                        {
+                            if(method.MethodSig.Params.Count == ParametersSig.Length){
+                                bool good = true;
+                                for (int i = 0;i < ParametersSig.Length;i ++)
+                                {
+                                    if(method.MethodSig.Params[i].TypeName != ParametersSig[i].Name)
+                                    {
+                                        good = false;
+                                    }
+                                }
+                                if (good)
+                                {
+                                    return method;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            //Attempt #2 - Generic MemberRef
+
+            MethodSig sig = null;
+
+            if (IsStatic)
+            {
+                sig = MethodSig.CreateStatic(ReturnSig.GetValueCast(module).ToTypeSig(), (from p in ParametersSig select p.GetValueCast(module).ToTypeSig()).ToArray());
+            } 
+            else
+            {
+                sig = MethodSig.CreateInstance(ReturnSig.GetValueCast(module).ToTypeSig(), (from p in ParametersSig select p.GetValueCast(module).ToTypeSig()).ToArray());
+            }
+
+            Value = new MemberRefUser(module, Name, sig, ContainingType.GetValueCast(module));
+
+            return Value;
+
+            //return Value = new MemberRefUser(module, Name, MethodSig.CreateStatic(ReturnSig.GetValueCast(module).ToTypeSig(), (from p in ParametersSig select p.GetValueCast(module).ToTypeSig()).ToArray()), ContainingType.GetValueCast(module));//Im pretty sure this is very wrong
         }
 
         public static MethodRefSave Get(object operand)
@@ -412,13 +459,13 @@ namespace AssemblyTools
                 throw new ArgumentException();
             }
             MethodSig sig = memberRef.MethodSig;
-            return new MethodRefSave(memberRef.Module.Name, memberRef.Name, TypeRefSave.Get(memberRef.DeclaringType), TypeRefSave.Get(sig.RetType), (from t in sig.Params select TypeRefSave.Get(t)).ToArray());
+            return new MethodRefSave(memberRef.Module.Name, memberRef.Name, TypeRefSave.Get(memberRef.DeclaringType), TypeRefSave.Get(sig.RetType), (from t in sig.Params select TypeRefSave.Get(t)).ToArray(), !sig.HasThis);
         }
 
         private static MethodRefSave GetMethodDef(IMethodDefOrRef methodDef)
         {
             MethodSig sig = methodDef.MethodSig;
-            return new MethodRefSave(methodDef.Module.Name, methodDef.Name, TypeRefSave.Get(methodDef.DeclaringType), TypeRefSave.Get(sig.RetType), (from t in sig.Params select TypeRefSave.Get(t)).ToArray());
+            return new MethodRefSave(methodDef.Module.Name, methodDef.Name, TypeRefSave.Get(methodDef.DeclaringType), TypeRefSave.Get(sig.RetType), (from t in sig.Params select TypeRefSave.Get(t)).ToArray(), !sig.HasThis);
         }
 
         private static MethodRefSave GetMethodSpec(MethodSpec methodSpec) => GetMethodDef(methodSpec.Method);//I hope this is correct

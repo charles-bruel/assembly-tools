@@ -2,6 +2,7 @@
 using dnlib.DotNet;
 using System.Collections.Generic;
 using System;
+using dnlib.DotNet.Writer;
 
 namespace AssemblyTools
 {
@@ -30,8 +31,12 @@ namespace AssemblyTools
             ModuleDefMD outputModule = ModuleDefMD.Load(originalAssembly, modCtx);
             SaveUtils.ApplySave(outputModule, outputLocation1 + @"\save.json");
 
+            //MetadataOptions.Flags |= MetadataFlags.KeepOldMaxStack;
+
             Utils.OutputAll(outputLocation2, outputModule, moddedModule);
             outputModule.Write(outputASMLocation1);
+
+            Utils.PrintMethodDiffs(moddedModule, outputModule, "LiftTowerCablePathFetcher", "Test");
 
             foreach(TypeDef type in moddedModule.Types)
             {
