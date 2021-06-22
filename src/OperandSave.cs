@@ -12,9 +12,10 @@ namespace AssemblyTools
         {
             object operand = instruction.Operand;
             if (operand == null) return new OperandNoOP();
-            switch (operand.GetType().FullName)
+            switch (operand.GetType().FullName)//Do something not awful here
             {
                 case "dnlib.DotNet.MemberRefMD":
+                case "dnlib.DotNet.MemberRefUser":
                     var temp = (operand as MemberRef);
                     if (temp.IsMethodRef)
                     {
@@ -26,6 +27,7 @@ namespace AssemblyTools
                     }
                     throw new NotImplementedException();
                 case "dnlib.DotNet.MethodDefMD":
+                case "dnlib.DotNet.MethodRefUser":
                 case "dnlib.DotNet.MethodSpecMD":
                     return MethodRefSave.Get(operand);
                 case "System.String":
@@ -42,6 +44,7 @@ namespace AssemblyTools
                     return new OperandInt64((long)operand);
                 case "dnlib.DotNet.TypeDefMD":
                 case "dnlib.DotNet.TypeRefMD":
+                case "dnlib.DotNet.TypeRefUser":
                 case "dnlib.DotNet.TypeSpecMD":
                     return TypeRefSave.Get(operand);
                 case "dnlib.DotNet.FieldDefMD":
@@ -267,6 +270,8 @@ namespace AssemblyTools
         public string Module;
         public string DefiningAssembly;
         public TypeRefSave[] GenericParameters;
+        public int GenericNumber;
+        public bool IsTypeVar;//The value of this is undefined if it is not a generic,
         private ITypeDefOrRef Value;
 
         public TypeRefSave(string Module, string Namespace, string Name, string DefiningAssembly)
@@ -276,6 +281,8 @@ namespace AssemblyTools
             this.Module = Module;
             this.DefiningAssembly = DefiningAssembly;
             this.GenericParameters = new TypeRefSave[0];
+            this.GenericNumber = -1;
+            this.IsTypeVar = false;
             this.Value = null;
         }
 
@@ -286,7 +293,29 @@ namespace AssemblyTools
             this.Module = Module;
             this.DefiningAssembly = DefiningAssembly;
             this.GenericParameters = GenericParameters;
+            this.GenericNumber = -1;
+            this.IsTypeVar = false;
             this.Value = null;
+        }
+
+        public TypeRefSave(string Module, string Namespace, string Name, string DefiningAssembly, int GenericNumber, bool IsTypeVar)
+        {
+            this.Name = Name;
+            this.Namespace = Namespace;
+            this.Module = Module;
+            this.DefiningAssembly = DefiningAssembly;
+            this.GenericParameters = new TypeRefSave[0];
+            this.GenericNumber = GenericNumber;
+            this.IsTypeVar = IsTypeVar;
+            this.Value = null;
+        }
+
+        public bool IsGenericParameter
+        {
+            get
+            {
+                return GenericNumber != -1;
+            }
         }
 
         public object GetValue(ModuleDefMD module) => GetValueCast(module);
@@ -327,10 +356,10 @@ namespace AssemblyTools
 
         public static TypeRefSave GetTypeSig(TypeSig typeSig)
         {
-            string temp = "INVALID";//uh no clue here, cant do a ternary conditional for some reason.
-            if (typeSig.Module != null) temp = typeSig.Module.Name;
-            string temp2 = "INVALID";
-            if (typeSig.DefinitionAssembly != null) temp2 = typeSig.DefinitionAssembly.Name;
+            string module = "INVALID";//uh no clue here, cant do a ternary conditional for some reason.
+            if (typeSig.Module != null) module = typeSig.Module.Name;
+            string definitionAssembly = "INVALID";
+            if (typeSig.DefinitionAssembly != null) definitionAssembly = typeSig.DefinitionAssembly.Name;
             if (typeSig is GenericInstSig)
             {
                 GenericInstSig genericInstSig = typeSig as GenericInstSig;
@@ -339,7 +368,7 @@ namespace AssemblyTools
                 {
                     genericParameters[i] = Get(genericInstSig.GenericArguments[i]);
                 }
-                return new TypeRefSave(temp, typeSig.Namespace, typeSig.TypeName, temp2, genericParameters);
+                return new TypeRefSave(module, typeSig.Namespace, typeSig.TypeName, definitionAssembly, genericParameters);
             } 
             else if (typeSig is ArraySigBase)//Array of generics test
             {
@@ -351,10 +380,20 @@ namespace AssemblyTools
                     {
                         genericParameters[i] = Get(genericInstSig.GenericArguments[i]);
                     }
-                    return new TypeRefSave(temp, typeSig.Namespace, typeSig.TypeName, temp2, genericParameters);
+                    return new TypeRefSave(module, typeSig.Namespace, typeSig.TypeName, definitionAssembly, genericParameters);
                 }
             }
-            return new TypeRefSave(temp, typeSig.Namespace, typeSig.TypeName, temp2);
+            else if (typeSig is GenericVar)
+            {
+                GenericSig genericSig = typeSig as GenericVar;
+                return new TypeRefSave(module, typeSig.Namespace, typeSig.TypeName, definitionAssembly, (int)genericSig.Number, true);//Converting an uint to int so we can have -1 as an invalid value, and who tf has more than 2.147 billion generic parameters anyway?
+            }
+            else if (typeSig is GenericMVar)
+            {
+                GenericSig genericSig = typeSig as GenericMVar;
+                return new TypeRefSave(module, typeSig.Namespace, typeSig.TypeName, definitionAssembly, (int)genericSig.Number, false);//Converting an uint to int so we can have -1 as an invalid value, and who tf has more than 2.147 billion generic parameters anyway?
+            }
+            return new TypeRefSave(module, typeSig.Namespace, typeSig.TypeName, definitionAssembly);
         }
     }
 

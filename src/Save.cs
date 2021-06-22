@@ -75,7 +75,7 @@ namespace AssemblyTools
                     List<MethodSave> addedMethodsToSave = new List<MethodSave>(addedMethods.Count);
                     foreach (MethodDef methodDef in addedMethods)
                     {
-                        addedMethodsToSave.Add(GetMethodSave(methodDef));
+                        addedMethodsToSave.Add(GetMethodSave(methodDef, modded));
                     }
                     toAdd.AddedMethods = addedMethodsToSave.ToArray();
 
@@ -103,7 +103,7 @@ namespace AssemblyTools
                     List<MethodSave> modifiedMethodsToSave = new List<MethodSave>(modifiedMethods.Count);
                     foreach(var methodDef in modifiedMethods)
                     {
-                        modifiedMethodsToSave.Add(GetModifiedMethodSave(methodDef.Item1, methodDef.Item2));
+                        modifiedMethodsToSave.Add(GetModifiedMethodSave(methodDef.Item1, methodDef.Item2, modded));
                     }
                     toAdd.ModifiedMethods = modifiedMethodsToSave.ToArray();
 
@@ -135,7 +135,7 @@ namespace AssemblyTools
                 List<MethodSave> methods = new List<MethodSave>(type.Methods.Count);
                 foreach (MethodDef methodDef in type.Methods)
                 {
-                    methods.Add(GetMethodSave(methodDef));
+                    methods.Add(GetMethodSave(methodDef, modded));
                 }
                 typeSave.AddedMethods = methods.ToArray();
 
@@ -151,9 +151,9 @@ namespace AssemblyTools
             return toReturn;
         }
 
-        public static MethodSave GetMethodSave(MethodDef methodDef)
+        public static MethodSave GetMethodSave(MethodDef methodDef, ModuleDefMD module)
         {
-            MethodSave toReturn = GetMethodSaveAttributeSection(methodDef);
+            MethodSave toReturn = GetMethodSaveAttributeSection(methodDef, module);
 
             //Since its an added method, its one big block of data
             if (methodDef.Body == null || methodDef.Body.Instructions == null)
@@ -424,7 +424,10 @@ namespace AssemblyTools
             MethodSig sig = null;
             if ((method.Attributes & MethodAttributes.Static) == 0)//Not static
             {
-                TypeSig returnType = new ClassSig(GetType(method.ReturnType, module));//Need to do proper choosing at some point
+                //TypeSig returnType = new ClassSig(GetType(method.ReturnType, module));//Need to do proper choosing at some point
+
+                TypeSig returnType = GetSig(method.ReturnType, module);
+
                 TypeSig[] parameters = new TypeSig[method.Parameters.Length];
                 for(int i = 0;i < method.Parameters.Length;i ++)
                 {
@@ -434,7 +437,8 @@ namespace AssemblyTools
             }
             else//Static
             {
-                TypeSig returnType = new ClassSig(GetType(method.ReturnType, module));//Need to do proper choosing at some point
+                //TypeSig returnType = new ClassSig(GetType(method.ReturnType, module));//Need to do proper choosing at some point
+                TypeSig returnType = GetSig(method.ReturnType, module);
                 TypeSig[] parameters = new TypeSig[method.Parameters.Length];
                 for (int i = 0; i < method.Parameters.Length; i++)
                 {
@@ -445,6 +449,14 @@ namespace AssemblyTools
             MethodDefUser methodDef = new MethodDefUser(method.Name, sig, method.Attributes);
 
             methodDef.Attributes = method.Attributes;
+
+            if (method.Generics.HasValue)
+            {
+                List<GenericParam> generics = GetGenerics(method.Generics.Value, module);
+                foreach (GenericParam param in generics) {
+                    methodDef.GenericParameters.Add(param);
+                }
+            }
 
             for (int i = 0;i < methodDef.Parameters.Count-1;i ++)
             {
@@ -482,6 +494,17 @@ namespace AssemblyTools
                     genericParams[i] = GetSig(type.GenericParameters[i], module);
                 }
                 return new GenericInstSig((ClassOrValueTypeSig)GetSig(genericBaseType, module), genericParams);//I *think* this cast is ok
+            }
+            else if (type.IsGenericParameter)
+            {
+                if (type.IsTypeVar)
+                {
+                    return new GenericVar(type.GenericNumber);
+                }
+                else//Difference is Var vs MVar
+                {
+                    return new GenericMVar(type.GenericNumber);
+                }
             }
             return new ClassSig(GetType(type, module));
         }
@@ -546,9 +569,14 @@ namespace AssemblyTools
         }
 
         //This is just the attributes (name, signature, etc)
-        public static MethodSave GetMethodSaveAttributeSection(MethodDef method)
+        public static MethodSave GetMethodSaveAttributeSection(MethodDef method, ModuleDefMD module)
         {
             MethodSave toReturn = new MethodSave();
+
+            if(method.HasGenericParameters)
+            {
+                toReturn.Generics = GetGenerics(method.GenericParameters, module);
+            }
 
             toReturn.Name = method.Name;
             toReturn.FullName = method.FullName;
@@ -570,7 +598,6 @@ namespace AssemblyTools
 
             toReturn.Parameters = new ParameterSave[actualParameterCount];
 
-
             int currentIndex = 0;
             foreach (Parameter parameter in method.Parameters)
             {
@@ -588,9 +615,9 @@ namespace AssemblyTools
             return toReturn;
         }
 
-        public static MethodSave GetModifiedMethodSave(MethodDef original, MethodDef modded)
+        public static MethodSave GetModifiedMethodSave(MethodDef original, MethodDef modded, ModuleDefMD module)
         {
-            MethodSave toReturn = GetMethodSaveAttributeSection(modded);
+            MethodSave toReturn = GetMethodSaveAttributeSection(modded, module);
 
             //Since its an added method, its one big block of data
             if (original.Body == null || original.Body.Instructions == null)
@@ -679,7 +706,7 @@ namespace AssemblyTools
 
                                 MethodDataBlockSave tempDataBlockI = new MethodDataBlockSave();
 
-                                tempDataBlockI.Type = MethodBlockType.DELETE;
+                                tempDataBlockI.Type = MethodBlockType.INSERT;
                                 tempDataBlockI.Lines = lines;
                                 tempDataBlockI.Data = GetInstructionsSave(Utils.ToArray(modded.Body.Instructions), moddedInstructionCount + 1, moddedEndInstructionCount, Utils.ToArray(original.Body.Instructions));
 
@@ -708,6 +735,53 @@ namespace AssemblyTools
 
             return toReturn;
         }
+    
+        public static GenericSave GetGenerics(IList<GenericParam> generics, ModuleDef module)
+        {
+            GenericParam[] genericsArray = Utils.ToArray<GenericParam>(generics);
+
+            TypeRefSave[][] data = new TypeRefSave[genericsArray.Length][];
+            string[] names = new string[genericsArray.Length];
+
+            for(int i = 0;i < data.Length;i++)
+            {
+                GenericParam param = genericsArray[i];
+
+                GenericParamConstraint[] constraints = Utils.ToArray<GenericParamConstraint>(param.GenericParamConstraints);
+
+                data[i] = new TypeRefSave[constraints.Length];
+                names[i] = param.Name;
+
+                for(int j = 0;j < constraints.Length;i++)
+                {
+                    data[i][j] = TypeRefSave.Get(constraints[j].Constraint);
+                }
+            }
+
+            GenericSave toReturn = new GenericSave(data, names);
+            return toReturn;
+        }
+
+        public static List<GenericParam> GetGenerics(GenericSave save, ModuleDefMD module)
+        {
+            List<GenericParam> toReturn = new List<GenericParam>(save.Generics.Length);
+            
+            for(int i = 0;i < save.Generics.Length;i++)
+            {
+                GenericParam param = new GenericParamUser((ushort)i);//Going to assume the numbers will just be in order.
+
+                for(int j = 0;j < save.Generics[i].Length;j++)
+                {
+                    param.GenericParamConstraints.Add(new GenericParamConstraintUser(GetType(save.Generics[i][j], module)));
+                }
+
+                param.Name = save.Names[i];
+
+                toReturn.Add(param);
+            }
+
+            return toReturn;
+        }
     }
 
     public struct Save
@@ -733,6 +807,7 @@ namespace AssemblyTools
         public FieldSave[] ModifiedFields;
         public FieldSave[] AddedFields;
         public string[] RemovedFields;
+        public GenericSave? Generics;
     }
 
     public struct MethodSave
@@ -745,6 +820,19 @@ namespace AssemblyTools
         public MethodDataBlockSave[] Data;
         public string OriginalMethodHash;
         public ushort StackSize;
+        public GenericSave? Generics;
+    }
+
+    public struct GenericSave
+    {
+        public TypeRefSave[][] Generics;//Each generic can have any number of constraints, which to dnlib is just a ITypeDefOrRef. So we just save them. A simple generic with no constraints is an empty list.
+        public string[] Names;
+        
+        public GenericSave(TypeRefSave[][] Generics, string[] Names)
+        {
+            this.Generics = Generics;
+            this.Names = Names;
+        }
     }
 
     public struct ParameterSave
@@ -779,6 +867,6 @@ namespace AssemblyTools
 
     public enum MethodBlockType
     {
-        INSERT, KEEP, DELETE
+        DELETE, INSERT, KEEP
     }
 }
