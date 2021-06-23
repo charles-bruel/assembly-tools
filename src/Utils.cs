@@ -7,6 +7,7 @@ using DiffMatchPatch;
 using System.Text;
 using Newtonsoft.Json;
 using System.Security.Cryptography;
+using System.Linq;
 
 namespace AssemblyTools
 {
@@ -566,6 +567,14 @@ namespace AssemblyTools
                             different = true;
                         }
 
+                        if(fieldDef.HasConstant && orgFieldDef.HasConstant)
+                        {
+                            if(fieldDef.Constant.Value != orgFieldDef.Constant.Value)
+                            {
+                                different = true;
+                            }
+                        }
+
                         if (different)
                         {
                             moddedFields.Add(fieldDef);
@@ -647,6 +656,43 @@ namespace AssemblyTools
                 }
             }
             return null;
+        }
+
+        public static MethodDef GetMethodFromType(MethodRefSave save, TypeDef type)
+        {
+            return GetMethodFromType(save.Name, save.ParametersSig, type);
+        }
+
+        public static MethodDef GetMethodFromType(MethodSave save, TypeDef type)
+        {
+            return GetMethodFromType(save.Name, (from x in save.Parameters select x.Type).ToArray(), type);
+        }
+
+        private static MethodDef GetMethodFromType(string methodName, TypeRefSave[] parameters, TypeDef type)
+        {
+            foreach (MethodDef method in type.Methods)
+            {
+                if (method.Name == methodName)
+                {
+                    if (method.MethodSig.Params.Count == parameters.Length)
+                    {
+                        bool good = true;
+                        for (int i = 0; i < parameters.Length; i++)
+                        {
+                            if (method.MethodSig.Params[i].TypeName != parameters[i].Name)
+                            {
+                                good = false;
+                            }
+                        }
+                        if (good)
+                        {
+                            return method;
+                        }
+                    }
+                }
+            }
+            return null;
+            //throw new NotImplementedException();
         }
 
         #endregion

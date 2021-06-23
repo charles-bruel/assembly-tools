@@ -11,6 +11,11 @@ namespace AssemblyTools
         public static OperandSave GetOperandSave(Instruction instruction, Instruction[] mainContext, Instruction[] secondaryContext = null)
         {
             object operand = instruction.Operand;
+            return GetOperand(operand, mainContext, secondaryContext);
+        }
+
+        public static OperandSave GetOperand(object operand, Instruction[] mainContext = null, Instruction[] secondaryContext = null)
+        {
             if (operand == null) return new OperandNoOP();
             switch (operand.GetType().FullName)//Do something not awful here
             {
@@ -428,25 +433,10 @@ namespace AssemblyTools
             {
                 if (type.Name == ContainingType.Name && type.Namespace == ContainingType.Namespace)
                 {
-                    foreach (MethodDef method in type.Methods)
+                    MethodDef temp = Utils.GetMethodFromType(this, type);
+                    if(temp != null)
                     {
-                        if (method.Name == Name)
-                        {
-                            if(method.MethodSig.Params.Count == ParametersSig.Length){
-                                bool good = true;
-                                for (int i = 0;i < ParametersSig.Length;i ++)
-                                {
-                                    if(method.MethodSig.Params[i].TypeName != ParametersSig[i].Name)
-                                    {
-                                        good = false;
-                                    }
-                                }
-                                if (good)
-                                {
-                                    return method;
-                                }
-                            }
-                        }
+                        return temp;
                     }
                 }
             }

@@ -103,7 +103,7 @@ namespace AssemblyTools
                     List<MethodSave> modifiedMethodsToSave = new List<MethodSave>(modifiedMethods.Count);
                     foreach(var methodDef in modifiedMethods)
                     {
-                        modifiedMethodsToSave.Add(GetModifiedMethodSave(methodDef.Item1, methodDef.Item2, modded));
+                        modifiedMethodsToSave.Add(GetModifiedMethodSave(methodDef.Item2, methodDef.Item1, modded));
                     }
                     toAdd.ModifiedMethods = modifiedMethodsToSave.ToArray();
 
@@ -194,7 +194,7 @@ namespace AssemblyTools
         {
             Queue<TypeSave> toAdd = new Queue<TypeSave>(save.AddedTypes);
             while (toAdd.Count != 0)//Add types
-            {
+            {//The queue might be unnessecary now?
                 TypeSave typeSave = toAdd.Dequeue();
 
                 ITypeDefOrRef baseClass = GetType(typeSave.BaseType, module);
@@ -221,6 +221,25 @@ namespace AssemblyTools
                 ApplySaveToTypeStage2(existingType, modifiedType, module);
             }
 
+            foreach (TypeSave addedType in save.AddedTypes)
+            {
+                TypeDef existingType = Utils.GetTypeFromModule(module, addedType.Name, addedType.Namespace);
+
+                for (int i = 0; i < addedType.AddedMethods.Length; i++)
+                {
+                    MethodDef temp = GetAddedMethod(addedType.AddedMethods[i], module);
+                    existingType.Methods.Add(temp);
+                    addedType.AddedMethods[i].FullName = temp.FullName;//Update name for next section.
+                    //The fact that this has to be modified indicates something is going wrong somewhere.
+                }
+
+                foreach (FieldSave addedField in addedType.AddedFields)
+                {
+                    FieldDef temp = GetAddedField(addedField, module);
+                    existingType.Fields.Add(temp);
+                }
+            }
+
             foreach (string removedType in save.RemovedTypes)//O(n^3) go brrrrrr
             {
                 foreach (TypeDef type in module.Types)
@@ -241,6 +260,13 @@ namespace AssemblyTools
                 TypeDef existingType = Utils.GetTypeFromModule(module, modifiedType.Name, modifiedType.Namespace);
 
                 ApplySaveToTypeStage3(existingType, modifiedType, module);
+            }
+
+            foreach (TypeSave addedType in save.AddedTypes)
+            {
+                TypeDef existingType = Utils.GetTypeFromModule(module, addedType.Name, addedType.Namespace);
+
+                ApplySaveToTypeStage3(existingType, addedType, module);
             }
         }
         
@@ -277,6 +303,57 @@ namespace AssemblyTools
                 save.AddedMethods[i].FullName = temp.FullName;//Update name for next section.
                 //The fact that this has to be modified indicates something is going wrong somewhere.
             }
+
+            for (int i = 0; i < save.ModifiedMethods.Length; i++)//Might be unnessecary, just trying to keep the two as similar as possible
+            {
+                MethodDef temp = Utils.GetMethodFromType(save.ModifiedMethods[i], type);
+                save.ModifiedMethods[i].FullName = temp.FullName;//Update name for next section.
+                //The fact that this has to be modified indicates something is going wrong somewhere.
+            }
+
+            foreach(FieldSave addedField in save.AddedFields)
+            {
+                FieldDef temp = GetAddedField(addedField, module);
+                type.Fields.Add(temp);
+            }
+
+            foreach (FieldSave modifiedField in save.ModifiedFields)
+            {
+                foreach(FieldDef fieldDef in type.Fields)
+                {
+                    if(fieldDef.Name == modifiedField.Name)
+                    {
+                        FieldSig temp = new FieldSig(GetSig(modifiedField.Type, module));
+
+                        fieldDef.FieldSig = temp;
+
+                        fieldDef.Attributes = modifiedField.Attributes;
+
+                        fieldDef.InitialValue = modifiedField.Data;
+
+                        if (modifiedField.ConstantValue != null)
+                        {
+                            fieldDef.Constant = new ConstantUser(modifiedField.ConstantValue.GetValue(module));
+                        }
+                    }
+                }
+            }
+        }
+
+        public static FieldDef GetAddedField(FieldSave save, ModuleDefMD module)
+        {
+            FieldSig temp = new FieldSig(GetSig(save.Type, module));
+
+            FieldDefUser toReturn = new FieldDefUser(save.Name, temp, save.Attributes);
+
+            toReturn.InitialValue = save.Data;
+
+            if(save.ConstantValue != null)
+            {
+                toReturn.Constant = new ConstantUser(save.ConstantValue.GetValue(module));
+            }
+
+            return toReturn;
         }
 
         private static void ApplySaveToTypeStage3(TypeDef type, TypeSave save, ModuleDefMD module)
@@ -298,12 +375,33 @@ namespace AssemblyTools
                 } 
                 else
                 {
-                    ApplyInstructionsSaveToMehtod(addedMethodDef, addedMethod, module);
+                    ApplyInstructionsSaveToMethod(addedMethodDef, addedMethod, module);
+                }
+            }
+
+            foreach (MethodSave modifiedMethod in save.ModifiedMethods)
+            {
+                MethodDef modifiedMethodDef = null;
+                foreach (MethodDef methodDef in type.Methods)
+                {
+                    if (methodDef.FullName == modifiedMethod.FullName)
+                    {
+                        modifiedMethodDef = methodDef;
+                    }
+                }
+
+                if (modifiedMethodDef == null)
+                {
+                    Console.WriteLine("Failed to find: " + modifiedMethod.FullName);
+                }
+                else
+                {
+                    ApplyInstructionsSaveToMethod(modifiedMethodDef, modifiedMethod, module);
                 }
             }
         }
 
-        private static void ApplyInstructionsSaveToMehtod(MethodDef method, MethodSave save, ModuleDefMD module)
+        private static void ApplyInstructionsSaveToMethod(MethodDef method, MethodSave save, ModuleDefMD module)
         {
             if(method.Body == null)
             {
@@ -352,21 +450,21 @@ namespace AssemblyTools
                                 object operand = null;
                                 if (instructionSave.Operand is OperandInstruction)//Jumping is fun
                                 {
-                                    OperandInstruction operandInstruction = (OperandInstruction) instructionSave.Operand;//Cannot use as keyword here because its a struct, which is a shame because it is much cleaner.
-                                    if(operandInstruction.Type == OperandInstructionType.EXTERNAL)//Its referencing an instruction in the original method, so it can be assigned now.
+                                    OperandInstruction operandInstruction = (OperandInstruction)instructionSave.Operand;//Cannot use as keyword here because its a struct, which is a shame because it is much cleaner.
+                                    if (operandInstruction.Type == OperandInstructionType.EXTERNAL)//Its referencing an instruction in the original method, so it can be assigned now.
                                     {
                                         operand = oldInstructions[operandInstruction.Value];
-                                    } 
+                                    }
                                     else//Its referencing a instruction in the new method
                                     {
                                         int currentIndex = newInstructions.Count;
-                                        if(operandInstruction.Value < currentIndex)//Its an earlier instruction its referencing, so we can populate it now.
+                                        if (operandInstruction.Value < currentIndex)//Its an earlier instruction its referencing, so we can populate it now.
                                         {
                                             operand = newInstructions[operandInstruction.Value];
                                         }
                                         else
                                         {
-                                            indicesToRevisit.Add(new Tuple<int,InstructionSave>(currentIndex,instructionSave));//Its an later instruction its referencing, so we have to populate it later.
+                                            indicesToRevisit.Add(new Tuple<int, InstructionSave>(currentIndex, instructionSave));//Its an later instruction its referencing, so we have to populate it later.
                                         }
                                     }
                                 }
@@ -374,7 +472,7 @@ namespace AssemblyTools
                                 {
                                     throw new NotImplementedException();
                                 }
-                                else
+                                else if (instructionSave.Operand != null)
                                 {
                                     operand = instructionSave.Operand.GetValue(module);
                                 }
@@ -717,7 +815,7 @@ namespace AssemblyTools
                         origInstructionCount = origEndInstructionCount;
                         moddedInstructionCount = moddedEndInstructionCount;
                     }
-
+                    toReturn.Data = data.ToArray();
                 }
             }
             return toReturn;
@@ -730,8 +828,12 @@ namespace AssemblyTools
             toReturn.Attributes = fieldDef.Attributes;
             toReturn.Data = fieldDef.InitialValue;
             toReturn.Name = fieldDef.Name;
-            toReturn.ElementType = fieldDef.ElementType;
             toReturn.Type = TypeRefSave.Get(fieldDef.FieldSig.Type);
+
+            if (fieldDef.HasConstant)
+            {
+                toReturn.ConstantValue = OperandUtils.GetOperand(fieldDef.Constant.Value);
+            }
 
             return toReturn;
         }
@@ -860,9 +962,9 @@ namespace AssemblyTools
     {
         public string Name;
         public FieldAttributes Attributes;
-        public byte[] Data;
-        public ElementType ElementType;
+        public byte[] Data;//Is this ever not null?
         public TypeRefSave Type;
+        public OperandSave? ConstantValue;//If it is a constant, this is the value. Uses standard OperandSave
     }
 
     public enum MethodBlockType
