@@ -423,7 +423,7 @@ namespace AssemblyTools
             List<Instruction> newInstructions = new List<Instruction>();
             List<Instruction> oldInstructions = Utils.ToList(method.Body.Instructions);
 
-            List<Tuple<int,InstructionSave>> indicesToRevisit = new List<Tuple<int, InstructionSave>>();
+            List<Tuple<int, InstructionSave>> indicesToRevisit = new List<Tuple<int, InstructionSave>>();
 
             foreach (MethodDataBlockSave dataBlock in save.Data)
             {
@@ -481,7 +481,25 @@ namespace AssemblyTools
                                 }
                                 else if (instructionSave.Operand is OperandInstructionArray)
                                 {
-                                    throw new NotImplementedException();
+                                    OperandInstructionArray operandInstructionArray = (OperandInstructionArray)instructionSave.Operand;
+                                    operand = new Instruction[operandInstructionArray.Instructions.Length];
+
+                                    int currentIndex = newInstructions.Count;
+
+                                    for (int i = 0;i < operandInstructionArray.Instructions.Length;i++)
+                                    {
+                                        OperandInstruction operandInstruction = operandInstructionArray.Instructions[i];//Cannot use as keyword here because its a struct, which is a shame because it is much cleaner.
+                                        if (operandInstruction.Type == OperandInstructionType.EXTERNAL)//Its referencing an instruction in the original method, so it can be assigned now.
+                                        {
+                                            operand = oldInstructions[operandInstruction.Value];
+                                        }
+                                        else//Its referencing a instruction in the new method
+                                        {
+                                            //We are revisiting anyway.
+                                        }
+                                    }
+
+                                    indicesToRevisit.Add(new Tuple<int, InstructionSave>(currentIndex, instructionSave));
                                 }
                                 else if (instructionSave.Operand != null)
                                 {
@@ -509,6 +527,23 @@ namespace AssemblyTools
                     {
                         operand = newInstructions[operandInstruction.Value];
                     }
+                } 
+                else if (indicesToRevisit[i].Item2.Operand is OperandInstructionArray)
+                {
+                    OperandInstructionArray operandInstructionArray = (OperandInstructionArray)indicesToRevisit[i].Item2.Operand;
+                    for (int j = 0; j < operandInstructionArray.Instructions.Length;j ++) {
+                        OperandInstruction operandInstruction = operandInstructionArray.Instructions[j];
+                        if (operandInstruction.Type == OperandInstructionType.EXTERNAL)
+                        {
+                            continue;
+                        }
+                        else
+                        {
+                            ((Instruction[])newInstructions[indicesToRevisit[i].Item1].Operand)[j] = newInstructions[operandInstruction.Value];
+                        }
+                    }
+                    continue;//We dont care about the other operand stuff, so continue.
+                    //Very bad control flow, but whatever.
                 }
 
                 newInstructions[indicesToRevisit[i].Item1].Operand = operand;
