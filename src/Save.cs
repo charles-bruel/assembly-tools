@@ -56,7 +56,7 @@ namespace AssemblyTools
                     toAdd.Name = type.Item1.Name;
                     toAdd.Namespace = type.Item1.Namespace;
 
-                    if (type.Item1.BaseType.Name != "Object")
+                    if (type.Item1.BaseType != null && type.Item1.BaseType.Name != "Object")
                     {
                         toAdd.BaseType = TypeRefSave.Get(type.Item1.BaseType);
                     }
@@ -212,6 +212,12 @@ namespace AssemblyTools
             {
                 TypeDef existingType = Utils.GetTypeFromModule(module, modifiedType.Name, modifiedType.Namespace);
 
+                if(existingType == null)
+                {
+                    Console.WriteLine("Couldn't find type: " + modifiedType.Namespace + "." + modifiedType.Name);
+                    continue;
+                }
+
                 ITypeDefOrRef baseClass = GetType(modifiedType.BaseType, module);
 
                 if (baseClass != null) existingType.BaseType = baseClass;
@@ -307,6 +313,11 @@ namespace AssemblyTools
             for (int i = 0; i < save.ModifiedMethods.Length; i++)//Might be unnessecary, just trying to keep the two as similar as possible
             {
                 MethodDef temp = Utils.GetMethodFromType(save.ModifiedMethods[i], type);
+                if(temp == null)
+                {
+                    Console.WriteLine("Couldn't find method: " + save.ModifiedMethods[i].Name);
+                    continue;
+                }
                 save.ModifiedMethods[i].FullName = temp.FullName;//Update name for next section.
                 //The fact that this has to be modified indicates something is going wrong somewhere.
             }
@@ -681,9 +692,10 @@ namespace AssemblyTools
             toReturn.Attributes = method.Attributes;
 
             toReturn.ReturnType = TypeRefSave.Get(method.MethodSig.RetType);
-
-            toReturn.StackSize = method.Body.MaxStack;
-
+            if (method.Body != null)
+            {
+                toReturn.StackSize = method.Body.MaxStack;
+            }
             int actualParameterCount = 0;
 
             foreach(Parameter parameter in method.Parameters)
