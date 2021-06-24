@@ -1,6 +1,7 @@
 ﻿using DiffMatchPatch;
 using dnlib.DotNet;
 using dnlib.DotNet.Emit;
+using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
@@ -352,7 +353,7 @@ namespace AssemblyTools
 
                         fieldDef.Attributes = modifiedField.Attributes;
 
-                        fieldDef.InitialValue = modifiedField.Data;
+                        fieldDef.InitialValue = modifiedField.InitialValue;
 
                         if (modifiedField.ConstantValue != null)
                         {
@@ -369,7 +370,7 @@ namespace AssemblyTools
 
             FieldDefUser toReturn = new FieldDefUser(save.Name, temp, save.Attributes);
 
-            toReturn.InitialValue = save.Data;
+            toReturn.InitialValue = save.InitialValue;
 
             if(save.ConstantValue != null)
             {
@@ -885,7 +886,7 @@ namespace AssemblyTools
             FieldSave toReturn = new FieldSave();
 
             toReturn.Attributes = fieldDef.Attributes;
-            toReturn.Data = fieldDef.InitialValue;
+            toReturn.InitialValue = fieldDef.InitialValue;
             toReturn.Name = fieldDef.Name;
             toReturn.Type = TypeRefSave.Get(fieldDef.FieldSig.Type);
 
@@ -1021,7 +1022,8 @@ namespace AssemblyTools
     {
         public string Name;
         public FieldAttributes Attributes;
-        public byte[] Data;//Is this ever not null?
+        [JsonConverter(typeof(ByteArrayConverter))]//https://stackoverflow.com/questions/15226921/how-to-serialize-byte-as-simple-json-array-and-not-as-base64-in-json-net/15228384#15228384
+        public byte[] InitialValue;
         public TypeRefSave Type;
         public OperandSave? ConstantValue;//If it is a constant, this is the value. Uses standard OperandSave
     }
