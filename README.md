@@ -15,5 +15,7 @@ Currently it supports saving types, fields, and methods but I believe properties
 End goal is a command-line utility or library, but currently it is a early testing phase so testing methods are just called from `main()`.
 There are also many minor inconsistencies in where methods are and what parameters and overloads they have which will also have to be fixed. 
 
+I have made it public since it recently passed the milestone of being able to save and load methods, fields and types. It still may be broken; I haven't written super extensive tests.
+
 ### License Disclaimer Thing
 I think I am doing the copyright stuff correctly, but I really don't know. If there is a problem, tell me and I will try to fix it.
