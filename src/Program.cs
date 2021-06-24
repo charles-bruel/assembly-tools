@@ -31,11 +31,11 @@ namespace AssemblyTools
 
             ModuleDefMD outputModule = ModuleDefMD.Load(originalAssembly, modCtx);
             SaveUtils.ApplySave(outputModule, outputLocation1 + @"\save.json");
+            outputModule.Write(outputASMLocation1);
 
             //MetadataOptions.Flags |= MetadataFlags.KeepOldMaxStack;
 
             Utils.OutputAll(outputLocation2, outputModule, moddedModule);
-            outputModule.Write(outputASMLocation1);
 
             //Utils.PrintMethodDiffs(moddedModule, outputModule, "LiftTowerCablePathFetcher", "GetCablePath");
 

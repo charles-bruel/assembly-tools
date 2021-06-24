@@ -265,12 +265,24 @@ namespace AssemblyTools
             {
                 TypeDef existingType = Utils.GetTypeFromModule(module, modifiedType.Name, modifiedType.Namespace);
 
+                if (existingType == null)
+                {
+                    Console.WriteLine("Could not find type: " + modifiedType.Namespace + "." + modifiedType.Name);
+                    continue;
+                }
+
                 ApplySaveToTypeStage3(existingType, modifiedType, module);
             }
 
             foreach (TypeSave addedType in save.AddedTypes)
             {
                 TypeDef existingType = Utils.GetTypeFromModule(module, addedType.Name, addedType.Namespace);
+
+                if (existingType == null)
+                {
+                    Console.WriteLine("Could not find type: " + addedType.Namespace + "." + addedType.Name);
+                    continue;
+                }
 
                 ApplySaveToTypeStage3(existingType, addedType, module);
             }
